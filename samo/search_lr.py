@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 from torch_lr_finder import LRFinder, TrainDataLoaderIter
 
-from samo.loss import SAMO
-from samo.main import init_params, get_model, get_loader, update_embeds
+from loss import SAMO
+from main import init_params, get_model, get_loader, update_embeds
 
 
 class MyTrainDataLoaderIter(TrainDataLoaderIter):

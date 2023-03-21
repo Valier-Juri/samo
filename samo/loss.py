@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from samo.utils import uniform_hypersphere
+from utils import uniform_hypersphere
 
 
 class OCSoftmax(nn.Module):
@@ -59,7 +59,7 @@ class SAMO(nn.Module):
         if self.addNegEntropy:
             self.softmax = nn.Softmax(dim=1)
 
-    def forward(self, x, labels, spk=None, enroll=None, spoofprint=0):
+    def forward(self, x, labels, spk=None, enroll=None, attractor=0):
         """
         Args:
             x: feature matrix with shape (batch_size, feat_dim).
@@ -67,7 +67,7 @@ class SAMO(nn.Module):
         """
 
         # update centers if predefined
-        # if spoofprint != 0:
+        # if attractor != 0:
         #     self.center = nn.Parameter(torch.stack(list(enroll.values())), requires_grad=False)
         x = F.normalize(x, p=2, dim=1)
         w = F.normalize(self.center, p=2, dim=1).to(x.device)
@@ -76,7 +76,7 @@ class SAMO(nn.Module):
         # spk = spk.numpy()
         # print(enroll)
 
-        if spoofprint == 1:
+        if attractor == 1:
             # for all target only data, speaker-specific center scores
             tmp_w = torch.stack([enroll[id] for id in spk])
             tmp_w = F.normalize(tmp_w, p=2, dim=1).to(x.device)

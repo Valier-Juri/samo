@@ -1,6 +1,6 @@
 # SAMO
 
-This repo provides codes for paper ["SAMO: Speaker Attractor Multi-Center One-Class Learning for Voice Anti-Spoofing"](https://arxiv.org/abs/2211.02718).
+This repo provides codes for our ICASSP 2023 paper ["SAMO: Speaker Attractor Multi-Center One-Class Learning for Voice Anti-Spoofing"](https://arxiv.org/abs/2211.02718).
 
 ## Preparation
 - Installing dependencies
@@ -19,7 +19,7 @@ The `main.py` file contains train/val/eval steps for Softmax/OC-Softmax/SAMO.
 
 For example, to train SAMO:
 ```angular2html
-python3 samo/train.py -o 'path_to_output_folder' -d 'path_to_database' -p 'path_to_protocol'
+python3 samo/main.py -o 'path_to_output_folder' -d 'path_to_database' -p 'path_to_protocol'
 ```
 
 Please check argument setups in `main.py` to specify settings such as batch size and margins.
@@ -35,15 +35,19 @@ This is built upon open-source repos:
 - [OC-Softmax](https://github.com/yzyouzhang/AIR-ASVspoof)
 - [AASIST](https://github.com/clovaai/aasist)
 
-## References
+
+## Citation
 ```bibtex
-@article{ding2022samo,
+@inproceedings{ding2023samo,
   title={SAMO: Speaker Attractor Multi-Center One-Class Learning for Voice Anti-Spoofing},
   author={Ding, Siwen and Zhang, You and Duan, Zhiyao},
-  journal={arXiv preprint arXiv:2211.02718},
-  year={2022}
+  booktitle={Proc. IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
+  year={2023}
 }
 ```
+
+
+## References
 
 ```bibtex
 @article{wang2020asvspoof,
