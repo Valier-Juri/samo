@@ -12,10 +12,10 @@ from torch.utils.data import DataLoader, Subset
 from torchcontrib.optim import SWA
 from tqdm import tqdm
 
-from samo.aasist import AASIST
-from samo.aasist.data_utils import genSpoof_list, ASVspoof2019_speaker_raw
-from samo.loss import SAMO, OCSoftmax
-from samo.utils import setup_seed, seed_worker, cosine_annealing, adjust_learning_rate, em, compute_eer_tdcf
+from aasist import AASIST
+from aasist.data_utils import genSpoof_list, ASVspoof2019_speaker_raw
+from loss import SAMO, OCSoftmax
+from utils import setup_seed, seed_worker, cosine_annealing, adjust_learning_rate, em, compute_eer_tdcf
 
 
 def init_params():
@@ -27,7 +27,7 @@ def init_params():
     parser.add_argument("-d", "--path_to_database", type=str, help="dataset path",
                         default='/data2/sivan/')
     parser.add_argument("-p", "--path_to_protocol", type=str, help="protocol path",
-                        default='./protocols/')
+                        default='../protocols/')
     parser.add_argument("-o", "--out_fold", type=str, help="output folder", required=False, default='./models/try/')
     parser.add_argument("--overwrite", action='store_true', help="overwrite output folder")
 
@@ -45,7 +45,7 @@ def init_params():
     parser.add_argument('--beta_1', type=float, default=0.9, help="bata_1 for Adam")
     parser.add_argument('--beta_2', type=float, default=0.999, help="beta_2 for Adam")
     parser.add_argument('--eps', type=float, default=1e-8, help="epsilon for Adam")
-    parser.add_argument("--gpu", type=str, help="GPU index", default="2")
+    parser.add_argument("--gpu", type=str, help="GPU index", default="0")
     parser.add_argument('--num_workers', type=int, default=0, help="number of workers")
 
     # Loss setups
@@ -306,9 +306,10 @@ def get_model(model_config):
     feat_model = _model(model_config).to(args.device)
     nb_params = sum([param.view(-1).size()[0] for param in feat_model.parameters()])
     print("no. model params:{}".format(nb_params))
+    return feat_model
 
 
-def get_optimizer(optim_config, feat_model, total_steps, step_size_up):
+def get_optimizer(optim_config, feat_model, total_steps):
     # optimizer & scheduler setup
     optim_config['base_lr'] = args.lr
     optim_config['lr_min'] = args.lr_min
@@ -328,14 +329,14 @@ def get_optimizer(optim_config, feat_model, total_steps, step_size_up):
                 total_steps,
                 1,  # since lr_lambda computes multiplicative factor
                 optim_config['lr_min'] / optim_config['base_lr']))
-    elif args.scheduler == 'clr':
-        scheduler = torch.optim.lr_scheduler.CyclicLR(
-            optimizer,
-            base_lr=args.lr_min,
-            max_lr=args.lr,
-            step_size_up=step_size_up,
-            mode=args.clr_mode,
-            cycle_momentum=False)
+    # elif args.scheduler == 'clr':
+    #     scheduler = torch.optim.lr_scheduler.CyclicLR(
+    #         optimizer,
+    #         base_lr=args.lr_min,
+    #         max_lr=args.lr,
+    #         step_size_up=step_size_up,
+    #         mode=args.clr_mode,
+    #         cycle_momentum=False)
     else:
         raise NotImplementedError(f"What's your scheduler?")
     optimizer_swa = SWA(optimizer)
@@ -349,10 +350,11 @@ def train(args):
     torch.set_default_tensor_type(torch.FloatTensor)
 
     # initialize backbone model AASIST
-    with open("aasist/AASIST.conf", "r") as f_json:
+    with open("samo/aasist/AASIST.conf", "r") as f_json:
         config = json.loads(f_json.read())
     optim_config = config["optim_config"]
     feat_model = get_model(model_config=config["model_config"])
+    # print(feat_model)
 
     # Setup for DataParallel
     print(torch.cuda.device_count())
@@ -376,8 +378,7 @@ def train(args):
 
     # optimizer & scheduler setup
     optimizer, optimizer_swa, scheduler = get_optimizer(optim_config, feat_model,
-                                                        total_steps=args.num_epochs * len(train_data_loader),
-                                                        step_size_up=args.clr_step * len(train_data_loader))
+                                                        total_steps=args.num_epochs * len(train_data_loader))
 
     # loss setup
     criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor([0.9, 0.1])).to(args.device)
