@@ -19,7 +19,7 @@ The `main.py` file contains train/val/eval steps for Softmax/OC-Softmax/SAMO.
 
 For example, to train SAMO:
 ```angular2html
-python3 samo/main.py -o 'path_to_output_folder' -d 'path_to_database' -p 'path_to_protocol'
+python3 samo/main.py -o 'path_to_output_folder' -d 'path_to_database' -p 'path_to_protocol' --overwrite
 ```
 
 Please check argument setups in `main.py` to specify settings such as batch size and margins.

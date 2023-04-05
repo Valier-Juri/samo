@@ -49,7 +49,7 @@ def init_params():
     parser.add_argument('--num_workers', type=int, default=0, help="number of workers")
 
     # Loss setups
-    parser.add_argument('-l', '--loss', type=str, default="ocsoftmax",
+    parser.add_argument('-l', '--loss', type=str, default="samo",
                         choices=["softmax", "ocsoftmax", "samo"], help="loss for training")
     parser.add_argument('--num_centers', type=int, default=20,
                         help="number of centers for the sub-center one-class loss")
