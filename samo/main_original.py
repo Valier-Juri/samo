@@ -11,13 +11,12 @@ from torch import nn, Tensor
 from torch.utils.data import DataLoader, Subset
 from torchcontrib.optim import SWA
 from tqdm import tqdm
-from pathlib import Path
-
 
 from aasist import AASIST
 from aasist.data_utils import genSpoof_list, ASVspoof2019_speaker_raw
 from loss import SAMO, OCSoftmax
 from utils import setup_seed, seed_worker, cosine_annealing, adjust_learning_rate, em, compute_eer_tdcf
+
 
 def init_params():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -658,60 +657,6 @@ def update_embeds(device, enroll_model, loader):
 
     return enroll_emb_dict
 
-def build_loader(split):
-    """
-    Build loader from protocol.txt for MLAAD
-    """
-    from aasist.data_utils import genSpoof_list, ASVspoof2019_speaker_raw
-    from torch.utils.data import DataLoader
-
-    if split == 'val':
-        protocol_path = args.path_to_protocol
-    else:
-        raise NotImplementedError("Only 'val' split supported in MLAAD test mode.")
-
-    # Load protocol.txt
-    d_meta = {}
-    utt_list = []
-    utt2spk = {}
-    tag_list = []
-
-    with open(protocol_path, "r") as f:
-        l_meta = f.readlines()
-
-    for line in l_meta:
-        rel_path, label = line.strip().split(" ")
-        key = Path(rel_path).stem  # extract filename without .wav
-        spk = "MLAAD"  # dummy speaker id — SAMO expects speaker label but MLAAD may not have it
-        tag = "-"  # no tag in MLAAD
-
-        utt2spk[key] = spk
-        utt_list.append(key)
-        tag_list.append(tag)
-        d_meta[key] = 1 if label != "bonafide" else 0
-
-    print(f"Loaded {len(utt_list)} utterances from protocol.txt")
-
-    # Build dataset
-    dataset = ASVspoof2019_speaker_raw(
-        list_IDs=utt_list,
-        labels=d_meta,
-        utt2spk=utt2spk,
-        base_dir=args.path_to_database + "/",
-        tag_list=tag_list,
-        train=False
-    )
-
-    loader = DataLoader(
-        dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        drop_last=False,
-        pin_memory=True
-    )
-
-    return loader
-
 
 def test(args):
     torch.set_default_tensor_type(torch.FloatTensor)
@@ -731,7 +676,7 @@ def test(args):
             feat_model.load_state_dict(
                 torch.load(args.test_model, map_location=args.device))
         else:
-            feat_model = torch.load(args.test_model, weights_only=False).to(args.device)
+            feat_model = torch.load(args.test_model).to(args.device)
         print("Model loaded : {}".format(args.test_model))
         print("Using scoring=", args.scoring, "  testing on val_sp=", args.val_sp, "using target-only=", args.target)
         print("Start evaluation...")
@@ -740,16 +685,7 @@ def test(args):
 
         # load test data and initialize loss
         # reverse [0,1] label when loading aasist pretrain
-        # _, _, eval_data_loader, train_bona_loader, _, eval_enroll_loader, _ = get_loader(args)
-        # === PATCH FOR MLAAD TEST ===
-        print("Using protocol.txt for MLAAD test loader...")
-        val_loader = build_loader('val')  # this uses your protocol.txt
-
-        if args.test_only and args.path_to_protocol is not None:
-            print("Warning: SAMO scoring requires enrollment; forcing FC scoring for protocol.txt test")
-            args.scoring = "fc"
-
-
+        _, _, eval_data_loader, train_bona_loader, _, eval_enroll_loader, _ = get_loader(args)
 
         if args.scoring == "ocsoftmax":
             ocsoftmax = OCSoftmax(args.enc_dim, m_real=args.m_real, m_fake=args.m_fake, alpha=args.alpha,
@@ -761,71 +697,50 @@ def test(args):
 
             ip1_loader, utt_loader, idx_loader, score_loader, spk_loader, tag_loader = [], [], [], [], [], []
 
-            # if args.scoring == "samo":
-            #     if args.val_sp:
-            #         # define and update eval centers
-            #         eval_enroll = update_embeds(args.device, feat_model, eval_enroll_loader)
-            #     else:  # use training centers without eval enrollment
-            #         if args.one_hot:
-            #             spklist = ['LA_00' + str(spk_id) for spk_id in range(79, 99)]
-            #             tmp_center = torch.eye(args.enc_dim)[:20]
-            #             eval_enroll = dict(zip(spklist, tmp_center))
-            #         else:
-            #             eval_enroll = update_embeds(args.device, feat_model, train_bona_loader)
-            #     samo.center = torch.stack(list(eval_enroll.values()))
-            for i, (feat, labels, spk, utt, tag) in enumerate(tqdm(val_loader)):
+            if args.scoring == "samo":
+                if args.val_sp:
+                    # define and update eval centers
+                    eval_enroll = update_embeds(args.device, feat_model, eval_enroll_loader)
+                else:  # use training centers without eval enrollment
+                    if args.one_hot:
+                        spklist = ['LA_00' + str(spk_id) for spk_id in range(79, 99)]
+                        tmp_center = torch.eye(args.enc_dim)[:20]
+                        eval_enroll = dict(zip(spklist, tmp_center))
+                    else:
+                        eval_enroll = update_embeds(args.device, feat_model, train_bona_loader)
+                samo.center = torch.stack(list(eval_enroll.values()))
+
+            for i, (feat, labels, spk, utt, tag) in enumerate(tqdm(eval_data_loader)):
                 feat = feat.to(args.device)
                 labels = labels.to(args.device)
                 feats, feat_outputs = feat_model(feat)
 
-                if args.scoring == "fc":
-                    if args.test_model[-3:] == "pth":
-                        score = feat_outputs[:, 1]
+                # loss cal
+                if args.scoring == "samo":
+                    if args.target:  # loss calculation for target-only speakers
+                        # val_sp = 0 or 2 calculate all maxscore only
+                        # val_sp = 1 calculate 1 on 1 scores
+                        _, score = samo(feats, labels, spk, eval_enroll, args.val_sp)
                     else:
-                        score = feat_outputs[:, 0]
-                else:
-                    print("Warning: for MLAAD protocol.txt test, only FC scoring is fully supported.")
+                        _, score = samo.inference(feats, labels, spk, eval_enroll, args.val_sp)
+                elif args.scoring == "fc":
+                    if args.test_model[-3:] == "pth":
+                        score = feat_outputs[:, 1]  # pretrained networks with reversed labels
+                    else:
+                        score = feat_outputs[:, 0]  # samo pretrained
+                elif args.scoring == "ocsoftmax":
+                    _, score = ocsoftmax(feats, labels)
 
+                ip1_loader.append(feats)
                 idx_loader.append(labels)
                 score_loader.append(score)
+                utt_loader.extend(utt)
+                spk_loader.extend(spk)
+                tag_loader.extend(tag)
 
             scores = torch.cat(score_loader, 0).data.cpu().numpy()
             labels = torch.cat(idx_loader, 0).data.cpu().numpy()
             eer = em.compute_eer(scores[labels == 0], scores[labels == 1])[0]
-
-            
-
-            # for i, (feat, labels, spk, utt, tag) in enumerate(tqdm(eval_data_loader)):
-            #     feat = feat.to(args.device)
-            #     labels = labels.to(args.device)
-            #     feats, feat_outputs = feat_model(feat)
-
-            #     # loss cal
-            #     if args.scoring == "samo":
-            #         if args.target:  # loss calculation for target-only speakers
-            #             # val_sp = 0 or 2 calculate all maxscore only
-            #             # val_sp = 1 calculate 1 on 1 scores
-            #             _, score = samo(feats, labels, spk, eval_enroll, args.val_sp)
-            #         else:
-            #             _, score = samo.inference(feats, labels, spk, eval_enroll, args.val_sp)
-            #     elif args.scoring == "fc":
-            #         if args.test_model[-3:] == "pth":
-            #             score = feat_outputs[:, 1]  # pretrained networks with reversed labels
-            #         else:
-            #             score = feat_outputs[:, 0]  # samo pretrained
-            #     elif args.scoring == "ocsoftmax":
-            #         _, score = ocsoftmax(feats, labels)
-
-            #     ip1_loader.append(feats)
-            #     idx_loader.append(labels)
-            #     score_loader.append(score)
-            #     utt_loader.extend(utt)
-            #     spk_loader.extend(spk)
-            #     tag_loader.extend(tag)
-
-            # scores = torch.cat(score_loader, 0).data.cpu().numpy()
-            # labels = torch.cat(idx_loader, 0).data.cpu().numpy()
-            # eer = em.compute_eer(scores[labels == 0], scores[labels == 1])[0]
 
         if args.save_score != None:
             with open(save_path, "w") as fh:  # w as in overwrite mode

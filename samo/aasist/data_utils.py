@@ -113,7 +113,8 @@ class ASVspoof2019_speaker_raw(Dataset):
     def __getitem__(self, index):
         key = self.list_IDs[index]
         tag = self.tag_list[index]
-        X, _ = sf.read(str(self.base_dir + f"flac/{key}.flac"))
+        # X, _ = sf.read(str(self.base_dir + f"flac/{key}.flac"))
+        X, _ = sf.read(str(self.base_dir + f"{key}.wav"))
         if self.train:
             X_pad = pad_random(X, self.cut)
         else:  # load for dev and eval
